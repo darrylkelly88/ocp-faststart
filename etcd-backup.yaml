@@ -1,0 +1,91 @@
+---
+# ====================================================================================
+# 1. FeatureGate: Enable Technology Preview Features (Required for etcd backup APIs)
+# ====================================================================================
+# WARNING: This setting prevents minor version upgrades and should NEVER be used
+# on production clusters. Only enable this in lab/dev/test environments.
+---
+apiVersion: config.openshift.io/v1
+kind: FeatureGate
+metadata:
+  name: cluster
+spec:
+  featureSet: TechPreviewNoUpgrade
+
+---
+# ====================================================================================
+# 2. StorageClass for etcd backups (Local PV setup for clusters without dynamic storage)
+# ====================================================================================
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: etcd-backup-local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: Immediate
+
+---
+# ====================================================================================
+# 3. PersistentVolume (binds to one control plane node for local backup storage)
+# ====================================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: etcd-backup-pv-fs
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: etcd-backup-local-storage
+  local:
+    path: /mnt/
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - master01
+
+---
+# ====================================================================================
+# 4. PersistentVolumeClaim for etcd backup data (binds to PV defined above)
+# ====================================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: etcd-backup-pvc
+  namespace: openshift-etcd
+spec:
+  accessModes:
+    - ReadWriteMany
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: etcd-backup-local-storage
+
+---
+# ====================================================================================
+# 5. Recurring Etcd Backup Schedule
+# ====================================================================================
+# This defines a recurring backup at 04:20 UTC daily and keeps a max of 5 backups.
+# The CRD is created automatically after enabling the feature gate above.
+# You can verify with: oc get crd | grep backup
+---
+apiVersion: config.openshift.io/v1alpha1
+kind: Backup
+metadata:
+  name: etcd-recurring-backup
+spec:
+  etcd:
+    schedule: "20 4 * * *"        # Cron schedule: 04:20 UTC every day
+    timeZone: "UTC"               # Time zone of the schedule
+    pvcName: etcd-backup-pvc      # PVC where the backup is stored
+    retentionPolicy:
+      retentionType: RetentionNumber
+      retentionNumber:
+        maxNumberOfBackups: 5     # Retain the last 5 backups (6th will trigger deletion of oldest)

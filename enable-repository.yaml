@@ -1,0 +1,68 @@
+# ==========================================================================================
+# Enable and Persist the OpenShift Internal Image Registry using ODF CephFS Storage
+# ==========================================================================================
+# This file demonstrates 2 key operations:
+#  1. Creating a PersistentVolumeClaim (PVC) that uses ODF CephFS to provide
+#     ReadWriteMany (RWX) storage for the registry.
+#  2. Patching the OpenShift internal image registry to enable it and attach the PVC.
+#
+# The PVC provides persistent storage for container images pushed by builds,
+# while the patch command instructs the registry operator to use this storage.
+# ==========================================================================================
+
+# ------------------------------------------------------------------------------------------
+# 1. PersistentVolumeClaim (PVC): Request CephFS-backed RWX storage from ODF
+# ------------------------------------------------------------------------------------------
+# This PVC is used by the internal registry to store its images. The following fields:
+#  - accessModes: "ReadWriteMany" (RWX) is chosen to support high availability.
+#  - storageClassName: Should match the CephFS-backed ODF StorageClass (e.g., "ocs-storagecluster-cephfs").
+#  - resources.requests.storage: Sets the size of the volume (adjust as needed).
+# ------------------------------------------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: image-registry-storage                # This name is referenced by the registry patch
+  namespace: openshift-image-registry         # The internal registry runs in this namespace
+spec:
+  accessModes:
+    - ReadWriteMany                           # RWX enables multi-node access for high availability
+  resources:
+    requests:
+      storage: 100Gi                          # Allocate enough storage for image layers and blobs
+  storageClassName: ocs-storagecluster-cephfs # Must match your CephFS StorageClass from ODF
+  volumeMode: Filesystem                      # Using a filesystem mode (required by CephFS)
+
+---
+# ==========================================================================================
+# 2. Patch the Image Registry Operator to Enable and Attach the PVC
+# ==========================================================================================
+# The following 'oc patch' command will:
+#  - Set the registry's managementState to "Managed" (i.e. enabled)
+#  - Direct the registry to use the PVC "image-registry-storage" for persistent storage.
+#
+# After running this patch, the registry pod (in the openshift-image-registry namespace)
+# should be recreated and become available at the internal service address:
+# image-registry.openshift-image-registry.svc:5000
+#
+# Alternatively this can be found in the GUI under: 
+# Administration -> Cluster Settings -> Cluster Operators -> Image Registry -> Related Objects
+# -> cluster config object.
+# The YAML can be directly edited from there
+# Change spec.managementState to Managed
+# Change spec.storage.pvc.claim to reference the pvc above.
+# ==========================================================================================
+
+
+oc patch configs.imageregistry.operator.openshift.io cluster \
+  --type=merge \
+  -p '{
+    "spec": {
+      "managementState": "Managed",                
+      "storage": {
+        "pvc": {
+          "claim": "image-registry-storage"        
+        }
+      }
+    }
+  }'
+

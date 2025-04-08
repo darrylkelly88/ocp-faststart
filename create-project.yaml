@@ -1,0 +1,46 @@
+# ==========================================================================================
+# This file:
+# 1. Creates a new OpenShift project (namespace) called 'myfirstproject'
+# 2. Applies a NetworkPolicy that denies ALL incoming traffic by default
+# ==========================================================================================
+
+---
+apiVersion: project.openshift.io/v1
+kind: Project
+metadata:
+  name: myfirstproject
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-ingress
+  namespace: myfirstproject
+spec:
+  podSelector: {}               # Applies to all pods in the namespace
+  policyTypes:
+    - Ingress                   # Deny all incoming traffic
+
+
+
+
+# ==========================================================================================
+# This object can be customised to create a networking rule to allow traffic through to a pod.
+#
+# ==========================================================================================
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-traffic
+  namespace: myfirstproject     # Adjust namespace if needed
+spec:
+  podSelector:
+    matchLabels:
+      app: rh-site              # This targets pods labeled with app=rh-site
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080            # Allows TCP traffic to port 8080
+  policyTypes:
+    - Ingress                  # Applies to incoming traffic only
